@@ -12,6 +12,7 @@
 
 #include <std_msgs/msg/float64.h>
 #include <std_msgs/msg/int16.h>
+#include <std_msgs/msg/bool.h>
 
 Adafruit_ADS1115 ads;
 DCMotor motor(4, 5, 3);
@@ -26,6 +27,9 @@ const float ALPHA = 0.003851;
 
 rcl_publisher_t temperature_publisher;
 std_msgs__msg__Float64 temperature_msg;
+
+rcl_publisher_t limit_switch_publisher;
+std_msgs__msg__Bool limit_switch_msg;
 
 rcl_subscription_t velocity_subscriber;
 std_msgs__msg__Int16 velocity_msg;
@@ -78,6 +82,10 @@ void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
 
       RCSOFTCHECK(rcl_publish(&temperature_publisher, &temperature_msg, NULL));
 
+      bool limit_switch_state = digitalRead(11) == LOW;
+      limit_switch_msg.data = limit_switch_state;
+      RCSOFTCHECK(rcl_publish(&limit_switch_publisher, &limit_switch_msg, NULL));
+
       last_time = now;
     }
   }
@@ -104,7 +112,7 @@ void setup() {
   RCCHECK(
       rclc_node_init_default(&node, "micro_ros_platformio_node", "", &support));
 
-  RCCHECK(rclc_subscription_init_best_effort(
+  RCCHECK(rclc_subscription_init_default(
       &velocity_subscriber, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
       "science/command"));
@@ -112,6 +120,10 @@ void setup() {
   RCCHECK(rclc_publisher_init_default(
       &temperature_publisher, &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float64), "science/temperature"));
+
+  RCCHECK(rclc_publisher_init_default(
+      &limit_switch_publisher, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Bool), "arm_controller/limit_switch"));
 
   // create timer for 20ms update rate
   const unsigned int timer_timeout = 100; // 100 Hz
@@ -137,6 +149,8 @@ void setup() {
   ads.setDataRate(RATE_ADS1115_16SPS);
 
   motor.init();
+
+  pinMode(11, INPUT_PULLUP);
 }
 
 void loop() {
