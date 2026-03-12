@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <micro_ros_platformio.h>
 
+#include "dc_motor.h"
 #include <Adafruit_ADS1X15.h>
 #include <Wire.h>
 
@@ -10,8 +11,10 @@
 #include <rclc/rclc.h>
 
 #include <std_msgs/msg/float64.h>
+#include <std_msgs/msg/int16.h>
 
 Adafruit_ADS1115 ads;
+DCMotor motor(4, 5, 3);
 
 const float R_REF = 1000.0;
 const float R0 = 100.0;
@@ -23,6 +26,9 @@ const float ALPHA = 0.003851;
 
 rcl_publisher_t temperature_publisher;
 std_msgs__msg__Float64 temperature_msg;
+
+rcl_subscription_t velocity_subscriber;
+std_msgs__msg__Int16 velocity_msg;
 
 long last_time = 0;
 
@@ -77,6 +83,13 @@ void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
   }
 }
 
+void velocity_callback(const void *msgin) {
+  const std_msgs__msg__Int16 *msg = (const std_msgs__msg__Int16 *)msgin;
+  int16_t velocity = msg->data;
+
+  motor.setSpeed(velocity);
+}
+
 void setup() {
   Serial.begin(115200);
   set_microros_serial_transports(Serial);
@@ -91,9 +104,14 @@ void setup() {
   RCCHECK(
       rclc_node_init_default(&node, "micro_ros_platformio_node", "", &support));
 
+  RCCHECK(rclc_subscription_init_best_effort(
+      &velocity_subscriber, &node,
+      ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Int16),
+      "science/command"));
+
   RCCHECK(rclc_publisher_init_default(
       &temperature_publisher, &node,
-      ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float64), "temperature"));
+      ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float64), "science/temperature"));
 
   // create timer for 20ms update rate
   const unsigned int timer_timeout = 100; // 100 Hz
@@ -104,6 +122,10 @@ void setup() {
   RCCHECK(rclc_executor_init(&executor, &support.context, 6, &allocator));
   RCCHECK(rclc_executor_add_timer(&executor, &timer));
 
+  RCCHECK(rclc_executor_add_subscription(&executor, &velocity_subscriber,
+                                         &velocity_msg,
+                                         &velocity_callback, ON_NEW_DATA));
+
   Wire.begin();
 
   if (!ads.begin()) {
@@ -113,6 +135,8 @@ void setup() {
 
   ads.setGain(GAIN_FOUR);
   ads.setDataRate(RATE_ADS1115_16SPS);
+
+  motor.init();
 }
 
 void loop() {
